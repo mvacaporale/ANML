@@ -218,7 +218,7 @@ def main(args):
 
                 iterator_sorted = torch.utils.data.DataLoader(dataset_train, batch_size=1,shuffle=args.iid, num_workers=2)
                 iterator_train = torch.utils.data.DataLoader(dataset_train, batch_size=1, shuffle=False, num_workers=1)
-                iterator_test = torch.utils.data.DataLoader(dataset_test, batch_size=5, shuffle=False, num_workers=1)
+                iterator_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=1)
 
             elif args.dataset == "CIFAR100":
                 keep = np.random.choice(list(range(50, 100)), tot_class)
