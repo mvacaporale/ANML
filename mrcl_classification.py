@@ -46,7 +46,7 @@ def main(args):
         device = torch.device('cpu')
 
     maml = MetaLearingClassification(args, config, args.treatment).to(device)
-    
+
     if args.checkpoint:
         checkpoint = torch.load(args.saved_model, map_location='cpu')
 
@@ -56,7 +56,7 @@ def main(args):
     maml = maml.to(device)
 
     utils.freeze_layers(args.rln, maml)
-    
+
     for step in range(args.steps):
 
         t1 = np.random.choice(args.classes, args.tasks, replace=False)
@@ -75,16 +75,15 @@ def main(args):
         accs, loss = maml(x_spt, y_spt, x_qry, y_qry)#, args.tasks)
 
         # Evaluation during training for sanity checks
-        if step % 40 == 0:
-            #writer.add_scalar('/metatrain/train/accuracy', accs, step)
+        if step % 10 == 0 or step == 19999:
+            writer.add_scalar('/metatrain/train/classifier/accuracy', accs, step)
             logger.info('step: %d \t training acc %s', step, str(accs))
         if step % 100 == 0 or step == 19999:
             torch.save(maml.net, args.model_name)
-        if step % 2000 == 0 and step != 0:
+        if (step % 100 == 0 and step != 0) or step == 19999:
             utils.log_accuracy(maml, my_experiment, iterator_test, device, writer, step)
             utils.log_accuracy(maml, my_experiment, iterator_train, device, writer, step)
 
-#
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--steps', type=int, help='epoch number', default=40000)

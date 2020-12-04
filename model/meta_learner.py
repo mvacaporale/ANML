@@ -37,6 +37,8 @@ class MetaLearingClassification(nn.Module):
         self.nodeNM = False
         self.layers_to_fix = []
 
+        self.temp_count = 0
+
     def reset_classifer(self, class_to_reset):
         bias = self.net.parameters()[-1]
         weight = self.net.parameters()[-2]
@@ -161,7 +163,11 @@ class MetaLearingClassification(nn.Module):
         if fast_weights is None:
             fast_weights = self.net.parameters()
 
-        grad = torch.autograd.grad(loss, fast_weights, allow_unused=False)
+        # grad = torch.autograd.grad(loss, fast_weights, allow_unused=False)
+        grad = torch.autograd.grad(loss, fast_weights, retain_graph=True, create_graph=True)
+        if self.temp_count <= 100:
+            print("Taking the gradient of the gradient the proper way.")
+        self.temp_count += 1
 
         fast_weights = list(
             map(lambda p: p[1] - self.update_lr * p[0] if p[1].learn else p[1], zip(grad, fast_weights)))

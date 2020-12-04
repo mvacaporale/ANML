@@ -6,6 +6,7 @@ import pickle
 import numpy as np
 import torch
 import torch.nn as nn
+from pandas import DataFrame
 from tensorboardX import SummaryWriter
 from torch.nn import functional as F
 
@@ -23,6 +24,7 @@ def pickle_dict(dictionary, filename):
     p.dump(dictionary) 
 
 def main(args):
+    # torch.autograd.set_detect_anomaly(True)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     np.random.seed(args.seed)
@@ -30,6 +32,9 @@ def main(args):
 
     my_experiment = experiment(args.name, args, "../results/", args.commit)
     writer = SummaryWriter(my_experiment.path + "tensorboard")
+    results_df = DataFrame(columns=["Num Classes", "Meta-test test", "Meta-test train", "LR"])
+    results_path = os.path.join(my_experiment.path, "accuracies_vs_numclasses.csv")
+    print("results_path:", results_path)
 
     logger = logging.getLogger('experiment')
     logger.setLevel(logging.INFO)
@@ -49,7 +54,8 @@ def main(args):
         lr_list = [0.001, 0.0006, 0.0004, 0.00035, 0.0003, 0.00025, 0.0002, 0.00015, 0.0001, 0.00009, 0.00008, 0.00006, 0.00003, 0.00001]
         lr_all = []
         for lr_search in range(10):
-
+        # lr_all = [0.001]
+        # for lr_search in range(0):
             keep = np.random.choice(list(range(650)), tot_class, replace=False)
             
             dataset = utils.remove_classes_omni(
@@ -79,6 +85,7 @@ def main(args):
                 for lr in lr_list:
 
                     print(lr)
+                    logger.info(f"Loading model {args.model}")
                     maml = torch.load(args.model, map_location='cpu')
 
                     if args.scratch:
@@ -107,9 +114,9 @@ def main(args):
                                 param.data = w
                                 param.learn = True
 
-                    frozen_layers = []
-                    for temp in range(args.rln * 2):
-                        frozen_layers.append("vars." + str(temp))
+                    # frozen_layers = []
+                    # for temp in range(args.rln * 2):
+                    #     frozen_layers.append("vars." + str(temp))
 
                     torch.nn.init.kaiming_normal_(maml.parameters()[-2])
                     w = nn.Parameter(torch.zeros_like(maml.parameters()[-1]))
@@ -149,7 +156,7 @@ def main(args):
                     if args.scratch or args.no_freeze:
                         print("Empty filter list")
                         list_of_params = maml.parameters()
-                    
+
                     for x in list_of_names:
                         logger.info("Unfrozen layer = %s", str(x[0]))
                     opt = torch.optim.Adam(list_of_params, lr=lr)
@@ -184,7 +191,7 @@ def main(args):
                 lr_all.append(max_lr)
                 results_mem_size[mem_size] = (max_acc, max_lr)
                 logger.info("Final Max Result = %s", str(max_acc))
-                writer.add_scalar('/finetune/best_' + str(lr_search), max_acc, tot_class)
+                writer.add_scalar(f'/finetune/best_acc_lr_{lr}', max_acc, lr_search)
             temp_result.append((tot_class, results_mem_size))
             print("A=  ", results_mem_size)
             logger.info("Temp Results = %s", str(results_mem_size))
@@ -195,7 +202,8 @@ def main(args):
 
         from scipy import stats
         best_lr = float(stats.mode(lr_all)[0][0])
-        logger.info("BEST LR %s= ", str(best_lr))
+        logger.info(f"BEST LR={best_lr} for num_class={tot_class}")
+        writer.add_scalar('/lr_search/best_per_num_classes', best_lr, tot_class)
 
         for aoo in range(args.runs):
 
@@ -203,16 +211,15 @@ def main(args):
             
             if args.dataset == "omniglot":
 
-                dataset = utils.remove_classes_omni(
+                dataset_train = utils.remove_classes_omni(
                     df.DatasetFactory.get_dataset("omniglot", train=True, background=False), keep)
-                iterator_sorted = torch.utils.data.DataLoader(
-                    utils.iterator_sorter_omni(dataset, False, classes=total_clases),
-                    batch_size=1,
-                    shuffle=args.iid, num_workers=2)
-                dataset = utils.remove_classes_omni(
-                    df.DatasetFactory.get_dataset("omniglot", train=not args.test, background=False), keep)
-                iterator = torch.utils.data.DataLoader(dataset, batch_size=1,
-                                                       shuffle=False, num_workers=1)
+                dataset_test = utils.remove_classes_omni(
+                    df.DatasetFactory.get_dataset("omniglot", train=False, background=False), keep)
+
+                iterator_sorted = torch.utils.data.DataLoader(dataset_train, batch_size=1,shuffle=args.iid, num_workers=2)
+                iterator_train = torch.utils.data.DataLoader(dataset_train, batch_size=1, shuffle=False, num_workers=1)
+                iterator_test = torch.utils.data.DataLoader(dataset_test, batch_size=5, shuffle=False, num_workers=1)
+
             elif args.dataset == "CIFAR100":
                 keep = np.random.choice(list(range(50, 100)), tot_class)
                 dataset = utils.remove_classes(df.DatasetFactory.get_dataset(args.dataset, train=True), keep)
@@ -238,6 +245,8 @@ def main(args):
 
                 lr = best_lr
 
+                logger.info(f"Using best lr {best_lr}")
+                logger.info(f"Loading model {args.model}")
                 maml = torch.load(args.model, map_location='cpu')
 
                 if args.scratch:
@@ -263,9 +272,9 @@ def main(args):
                             param.data = w
                             param.learn = True
 
-                frozen_layers = []
-                for temp in range(args.rln * 2):
-                    frozen_layers.append("vars." + str(temp))
+                # frozen_layers = []
+                # for temp in range(args.rln * 2):
+                #     frozen_layers.append("vars." + str(temp))
 
                 torch.nn.init.kaiming_normal_(maml.parameters()[-2])
                 w = nn.Parameter(torch.zeros_like(maml.parameters()[-1]))
@@ -295,24 +304,24 @@ def main(args):
                             a.data = w
                 
                 correct = 0
-                for img, target in iterator:
+                for img, target in iterator_train:
                     with torch.no_grad():
-
                         img = img.to(device)
                         target = target.to(device)
                         logits_q = maml(img, vars=None, bn_training=False, feature=False)
                         pred_q = (logits_q).argmax(dim=1)
                         correct += torch.eq(pred_q, target).sum().item() / len(img)
+                logger.info("Pre-epoch train accuracy %s", str(correct / len(iterator_train)))
 
-
-                logger.info("Pre-epoch accuracy %s", str(correct / len(iterator)))
-
-                filter_list = ["vars.{0}".format(v) for v in range(6)]
-
-                logger.info("Filter list = %s", ",".join(filter_list))
-               
-                list_of_names = list(
-                    map(lambda x: x[1], list(filter(lambda x: x[0] not in filter_list, maml.named_parameters()))))
+                correct = 0
+                for img, target in iterator_test:
+                    with torch.no_grad():
+                        img = img.to(device)
+                        target = target.to(device)
+                        logits_q = maml(img, vars=None, bn_training=False, feature=False)
+                        pred_q = (logits_q).argmax(dim=1)
+                        correct += torch.eq(pred_q, target).sum().item() / len(img)
+                logger.info("Pre-epoch test accuracy %s", str(correct / len(iterator_test)))
 
                 list_of_params = list(filter(lambda x: x.learn, maml.parameters()))
                 list_of_names = list(filter(lambda x: x[1].learn, maml.named_parameters()))
@@ -324,7 +333,7 @@ def main(args):
                     logger.info("Unfrozen layer = %s", str(x[0]))
                 opt = torch.optim.Adam(list_of_params, lr=lr)
 
-                for _ in range(0, args.epoch):
+                for epoch in range(0, args.epoch):
                     for img, y in iterator_sorted:
                         img = img.to(device)
                         y = y.to(device)
@@ -334,27 +343,43 @@ def main(args):
                         loss.backward()
                         opt.step()
 
-                logger.info("Result after one epoch for LR = %f", lr)
-                
+                    logger.info(f"Result after epoch {epoch} for LR = {lr}")
+
                 correct = 0
-                for img, target in iterator:
+                total = 0
+                for img, target in iterator_train:
                     img = img.to(device)
                     target = target.to(device)
                     logits_q = maml(img, vars=None, bn_training=False, feature=False)
-
                     pred_q = (logits_q).argmax(dim=1)
+                    correct += torch.eq(pred_q, target).sum().item()
+                    total += len(target)
+                train_acc = correct / total
 
-                    correct += torch.eq(pred_q, target).sum().item() / len(img)
+                correct = 0
+                total = 0
+                for img, target in iterator_test:
+                    img = img.to(device)
+                    target = target.to(device)
+                    logits_q = maml(img, vars=None, bn_training=False, feature=False)
+                    pred_q = (logits_q).argmax(dim=1)
+                    correct += torch.eq(pred_q, target).sum().item()
+                    total += len(target)
+                test_acc = correct / total
 
-                logger.info(str(correct / len(iterator)))
-                if (correct / len(iterator) > max_acc):
-                    max_acc = correct / len(iterator)
+                logger.info(str(test_acc))
+                if (test_acc > max_acc):
+                    max_acc = test_acc
                     max_lr = lr
 
                 lr_list = [max_lr]
                 results_mem_size[mem_size] = (max_acc, max_lr)
                 logger.info("Final Max Result = %s", str(max_acc))
-                writer.add_scalar('/finetune/best_' + str(aoo), max_acc, tot_class)
+                results_df.loc[len(results_df.index)] = (tot_class, test_acc, train_acc, lr)
+                writer.add_scalar(f'/metatest/train_acc/num_classes_{tot_class}', train_acc, aoo)
+                writer.add_scalar(f'/metatest/test_acc/num_classes_{tot_class}', test_acc, aoo)
+                writer.add_scalar(f'/best_acc/test_acc/best_per_num_classes', max_acc, tot_class)
+
             final_results_all.append((tot_class, results_mem_size))
             print("A=  ", results_mem_size)
             logger.info("Final results = %s", str(results_mem_size))
@@ -362,6 +387,7 @@ def main(args):
             my_experiment.results["Final Results"] = final_results_all
             my_experiment.store_json()
             print("FINAL RESULTS = ", final_results_all)
+    results_df.to_csv(results_path)
 
     writer.close()
 
