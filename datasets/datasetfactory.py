@@ -14,9 +14,15 @@ class DatasetFactory:
             train_transform = transforms.Compose(
                 [transforms.Resize((84, 84)),
                  transforms.ToTensor()])
-            path = path or "../data/omni"
-            return om.Omniglot(path, background=background, download=True, train=train,
-                               transform=train_transform, all=all)
+            if path is None:
+                return om.Omniglot("../data/omni", background=background, download=True, train=train,
+                                   transform=train_transform, all=all)
+            else:
+                return om.Omniglot(path, background=background, download=True, train=train,
+                                   transform=train_transform, all=all)
+            # else:
+            #     return om.Omniglot(path, download=True, background=train, transform=train_transform)
+
         else:
             print("Unsupported Dataset")
             assert False
